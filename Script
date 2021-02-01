@@ -1,0 +1,136 @@
+* January 2020
+ * Erwan Grandgirard  
+ * grandgie@igbmc.fr 
+ *  
+ *  this macro detect the axon on green chanel, on this one the macro detect the red signal and take some measurements
+ *  after the image with overlay detection an result tables are save.
+ *  
+*/ 
+macro"detect axon [F2]" {
+
+// INITIALISE MACRO
+print("\\Clear");
+run("Fresh Start");
+               
+run("Bio-Formats Macro Extensions");	//enable macro functions for Bio-formats Plugin
+
+ImgFormat= ".nd";
+msg = "Click \"OK\" 
+Dialog.create("Axon detection");
+  
+     Dialog.addDirectory("Folder Image:", getDir("downloads")+"images");
+     Dialog.addDirectory("destination for edf Images:", getDir("downloads")+"images");
+     Dialog.addMessage(msg);
+     Dialog.show();
+     //title = getTitle();
+     dir1= Dialog.getString();
+     dir2= Dialog.getString();
+
+//dir1 = getDirectory("Choose a Directory");
+print("Select the Save Folder")
+//dir2 = getDirectory("Choose a Directory to save");
+list = getFileList(dir1);
+setBatchMode(false);
+
+// PROCESS LIF FILES
+for (i = 0; i < list.length; i++) {
+	if(endsWith(list[i], ImgFormat)){
+		processFile(list[i]);
+	}
+}
+
+/// Requires run("Bio-Formats Macro Extensions");
+function processFile(fileToProcess){
+	path=dir1+fileToProcess;
+	
+	Ext.setId(path);
+	Ext.getCurrentFile(fileToProcess);
+	Ext.getSeriesCount(seriesCount); // this gets the number of series
+	Ext.getFormat(path, format)
+	print(format);
+	print("Processing the file = " + fileToProcess);
+	// see http://imagej.1557.x6.nabble.com/multiple-series-with-bioformats-importer-td5003491.html
+	for (j=0; j<seriesCount; j++) {
+        Ext.setSeries(j);
+        Ext.getSeriesName(seriesName);
+        run("Bio-Formats Importer", "open=["+path+"] color_mode=Default view=Hyperstack stack_order=XYCZT series_"+j+1); 
+		fileNameWithoutExtension = File.nameWithoutExtension;
+		name=getTitle();
+		run("Z Project...", "projection=[Sum Slices]");
+		Zproj=getTitle();
+		run("Duplicate...", "title=SUM duplicate");
+		sum=getTitle();
+		selectWindow(Zproj);
+		run("Split Channels");
+		selectWindow("C2-SUM_"+name);
+		run("Duplicate...", "title=Mask");
+		rename("Mask-"+fileNameWithoutExtension);
+		mask=getTitle();
+		selectWindow("C2-SUM_"+name);
+		run("Select None");
+		setAutoThreshold("Huang dark");
+		setTool( "Paintbrush Tool" );
+		run("Paintbrush Tool Options...", "brush=20");
+		waitForUser("cut the axon if necessary and clic ok");
+		run("Convert to Mask");
+		rename("Mask-"+fileNameWithoutExtension);
+		
+		mask= getTitle();
+		run("Duplicate...", "title=skeletonize");
+		skeletonize=getTitle();
+		selectWindow(mask);
+		run("Select None");
+		run("Analyze Particles...", "size=1000-Infinity pixel display include add");
+		areaMax=0;
+		for (k = 0; k < nResults; k++) {
+     		v = getResult('Area', k);
+    
+    		if(areaMax<v){
+    			areaMax=v;
+    	 		row=k;
+    		}    
+		}
+	updateResults();
+	selectWindow(skeletonize);
+	run("Select None");
+	roiManager("select", row);
+	run("Clear Outside");
+	run("Select All");
+	run("Hide Overlay");
+	run("Invert LUT");
+	setOption("BlackBackground", false);
+	run("Skeletonize");
+	run("Analyze Skeleton (2D/3D)", "prune=none calculate ");
+	selectWindow("Tagged skeleton");
+	close();
+	selectWindow(skeletonize);
+	close();
+	selectWindow(mask);
+	close();
+	AxonLenght=getResult("Longest Shortest Path", 0);
+	print(AxonLenght);
+	selectWindow("Log");
+	saveAs("Text", dir2+fileNameWithoutExtension+".txt");
+	run("Set Measurements...", "area mean shape display redirect=None decimal=3");
+	selectWindow("C1-SUM_"+name);
+	run("Duplicate...", " ");
+	roiManager("Select", row);
+	roiManager("reset");
+	roiManager("add");
+	setAutoThreshold("Otsu dark");
+	//run("Threshold...");
+	run("Analyze Particles...", "  show=Outlines display include overlay add");
+	saveAs("Results",  dir2+ fileNameWithoutExtension+"-"+"Results.csv");
+	selectWindow(sum);
+	roiManager("Show None");
+	roiManager("Show All without labels");
+	selectWindow(sum);
+	saveAs("Tiff", dir2+name);
+	
+	run("Fresh Start");
+	
+	}
+	
+}	
+}		
+		
